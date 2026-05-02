@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        .file-item {
+            transition: all 0.2s ease;
+        }
+        .file-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .drop-zone {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            border-color: #4299e1;
+            background-color: #ebf8ff;
+        }
+        .breadcrumb-item::after {
+            content: '/';
+            margin: 0 0.5rem;
+            color: #718096;
+        }
+        .breadcrumb-item:last-child::after {
+            content: '';
+        }
+        .modal {
+            display: none;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal.show {
+            display: flex;
+        }
+        .dark-mode {
+            background-color: #1a202c;
+            color: #e2e8f0;
+        }
+        .dark-mode .bg-white {
+            background-color: #2d3748;
+        }
+        .dark-mode .text-gray-700 {
+            color: #e2e8f0;
+        }
+        .dark-mode .text-gray-600 {
+            color: #cbd5e0;
+        }
+        .dark-mode .border-gray-200 {
+            border-color: #4a5568;
+        }
+        .dark-mode .hover\:bg-gray-50:hover {
+            background-color: #374151;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app">
+        <!-- Login Screen -->
+        <div id="loginScreen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
+            <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+                <div class="text-center mb-8">
+                    <i class="fas fa-cloud text-4xl text-blue-500 mb-4"></i>
+                    <h1 class="text-3xl font-bold text-gray-800">DriveGram</h1>
+                    <p class="text-gray-600 mt-2">Telegram Cloud Storage</p>
+                </div>
+                
+                <form id="loginForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                        <input type="tel" id="phoneNumber" required 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="+1234567890">
+                    </div>
+                    <button type="submit" 
+                            class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition duration-200">
+                        Send Verification Code
+                    </button>
+                </form>
+
+                <form id="verifyForm" class="space-y-4 mt-6 hidden">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Verification Code</label>
+                        <input type="text" id="verificationCode" required 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="12345">
+                    </div>
+                    <button type="submit" 
+                            class="w-full bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 transition duration-200">
+                        Verify
+                    </button>
+                </form>
+
+                <div id="loginError" class="mt-4 p-3 bg-red-100 text-red-700 rounded-md hidden"></div>
+            </div>
+        </div>
+
+        <!-- Main App -->
+        <div id="mainApp" class="hidden min-h-screen">
+            <!-- Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between items-center h-16">
+                        <div class="flex items-center">
+                            <i class="fas fa-cloud text-2xl text-blue-500 mr-3"></i>
+                            <h1 class="text-xl font-semibold text-gray-800">DriveGram</h1>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <button id="searchBtn" class="p-2 text-gray-600 hover:text-gray-800">
+                                <i class="fas fa-search"></i>
+                            </button>
+                            <button id="darkModeBtn" class="p-2 text-gray-600 hover:text-gray-800">
+                                <i class="fas fa-moon"></i>
+                            </button>
+                            <div class="relative">
+                                <button id="userMenuBtn" class="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100">
+                                    <i class="fas fa-user-circle text-gray-600"></i>
+                                    <span id="username" class="text-sm text-gray-700"></span>
+                                </button>
+                                <div id="userMenu" class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg hidden z-50">
+                                    <button id="logoutBtn" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Search Bar -->
+            <div id="searchBar" class="hidden bg-white border-b border-gray-200 px-4 py-3">
+                <div class="max-w-7xl mx-auto">
+                    <div class="relative">
+                        <input type="text" id="searchInput" 
+                               class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="Search files...">
+                        <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                        <button id="closeSearchBtn" class="absolute right-3 top-3 text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <!-- Toolbar -->
+                <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center space-x-2">
+                            <button id="backBtn" class="p-2 text-gray-600 hover:text-gray-800 disabled:opacity-50" disabled>
+                                <i class="fas fa-arrow-left"></i>
+                            </button>
+                            <div id="breadcrumb" class="flex items-center text-sm text-gray-600">
+                                <span class="breadcrumb-item cursor-pointer hover:text-blue-500" data-path="">
+                                    <i class="fas fa-home mr-1"></i>Home
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button id="uploadBtn" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition duration-200">
+                                <i class="fas fa-upload mr-2"></i>Upload
+                            </button>
+                            <button id="newFolderBtn" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition duration-200">
+                                <i class="fas fa-folder-plus mr-2"></i>New Folder
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Drop Zone -->
+                <div id="dropZone" class="drop-zone bg-white rounded-lg p-8 mb-6 text-center hidden">
+                    <i class="fas fa-cloud-upload-alt text-4xl text-blue-500 mb-4"></i>
+                    <p class="text-lg text-gray-700 mb-2">Drag and drop files here</p>
+                    <p class="text-sm text-gray-500">or click to browse</p>
+                    <input type="file" id="fileInput" multiple class="hidden">
+                </div>
+
+                <!-- Files Grid -->
+                <div id="filesContainer" class="bg-white rounded-lg shadow-sm p-6">
+                    <div id="filesGrid" class="file-grid">
+                        <!-- Files will be loaded here -->
+                    </div>
+                    <div id="emptyState" class="text-center py-12">
+                        <i class="fas fa-folder-open text-6xl text-gray-300 mb-4"></i>
+                        <p class="text-xl text-gray-500 mb-2">No files yet</p>
+                        <p class="text-gray-400 mb-4">Upload your first file to get started</p>
+                        <button class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 transition duration-200" onclick="document.getElementById('uploadBtn').click()">
+                            <i class="fas fa-upload mr-2"></i>Upload Files
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Upload Modal -->
+        <div id="uploadModal" class="modal fixed inset-0 z-50 flex items-center justify-center">
+            <div class="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 class="text-lg font-semibold mb-4">Upload Files</h3>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-3"></i>
+                    <p class="text-gray-600 mb-2">Drag and drop files here</p>
+                    <input type="file" id="modalFileInput" multiple class="hidden">
+                    <button class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition duration-200">
+                        Choose Files
+                    </button>
+                </div>
+                <div class="mt-4 flex justify-end space-x-2">
+                    <button id="cancelUploadBtn" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- New Folder Modal -->
+        <div id="folderModal" class="modal fixed inset-0 z-50 flex items-center justify-center">
+            <div class="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 class="text-lg font-semibold mb-4">New Folder</h3>
+                <input type="text" id="folderNameInput" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="Folder name">
+                <div class="mt-4 flex justify-end space-x-2">
+                    <button id="cancelFolderBtn" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
+                    <button id="createFolderBtn" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition duration-200">
+                        Create
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

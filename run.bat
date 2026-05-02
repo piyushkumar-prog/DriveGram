@@ -1,0 +1,13 @@
+@echo off
+echo Starting DriveGram...
+
+echo Installing Go dependencies...
+go mod download
+
+echo Building application...
+go build -o drivegram.exe main.go
+
+echo Starting server...
+.\drivegram.exe
+
+pause
