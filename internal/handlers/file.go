@@ -155,10 +155,26 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 		return
 	}
 
-	// Set headers for download
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", file.OriginalName))
+	// Set headers for download/inline preview
+	disposition := "attachment"
+	if c.Query("inline") == "1" || c.Query("inline") == "true" {
+		disposition = "inline"
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("%s; filename=\"%s\"", disposition, file.OriginalName))
 	c.Header("Content-Type", file.MimeType)
 	c.File(filePath)
+}
+
+func (h *FileHandler) SyncFiles(c *gin.Context) {
+	userID := c.GetUint("user_id")
+
+	err := h.fileService.SyncTelegramFiles(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Sync completed successfully"})
 }
 
 func (h *FileHandler) StreamFile(c *gin.Context) {

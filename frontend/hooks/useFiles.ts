@@ -23,6 +23,25 @@ interface FileItem {
 export function useFiles() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [starredIds, setStarredIds] = useState<Set<number>>(new Set())
+
+  useEffect(() => {
+    const saved = localStorage.getItem('starredFiles')
+    if (saved) {
+      setStarredIds(new Set(JSON.parse(saved)))
+    }
+  }, [])
+
+  const toggleStar = (fileId: number) => {
+    const newStarred = new Set(starredIds)
+    if (newStarred.has(fileId)) {
+      newStarred.delete(fileId)
+    } else {
+      newStarred.add(fileId)
+    }
+    setStarredIds(newStarred)
+    localStorage.setItem('starredFiles', JSON.stringify(Array.from(newStarred)))
+  }
 
   const loadFiles = async (folderId?: number) => {
     setIsLoading(true)
@@ -85,6 +104,19 @@ export function useFiles() {
     }
   }
 
+  const syncFiles = async (currentFolderId?: number) => {
+    setIsLoading(true)
+    try {
+      await api.post('/files/sync')
+      toast.success('Synced with Telegram successfully')
+      await loadFiles(currentFolderId)
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Sync failed')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadFiles()
   }, [])
@@ -92,10 +124,13 @@ export function useFiles() {
   return {
     files,
     isLoading,
+    starredIds,
     loadFiles,
     uploadFile,
     deleteFile,
     searchFiles,
     renameFile,
+    toggleStar,
+    syncFiles,
   }
 }

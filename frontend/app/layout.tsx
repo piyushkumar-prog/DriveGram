@@ -7,8 +7,16 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'DriveGram - Telegram Cloud Storage',
-  description: 'Transform your Telegram account into unlimited personal cloud storage',
+  title: {
+    default: 'DriveGram',
+    template: '%s | DriveGram',
+  },
+  description: 'Modern cloud workspace powered by Telegram storage',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
+  },
 }
 
 export default function RootLayout({
@@ -25,12 +33,33 @@ export default function RootLayout({
           </div>
           <Toaster
             position="top-right"
+            gutter={10}
+            containerStyle={{
+              top: 76,
+              right: 16,
+            }}
             toastOptions={{
-              duration: 4000,
+              duration: 3200,
+              className: 'dg-toast',
               style: {
-                background: 'hsl(var(--card))',
-                color: 'hsl(var(--card-foreground))',
-                border: '1px solid hsl(var(--border))',
+                maxWidth: '360px',
+              },
+              success: {
+                className: 'dg-toast dg-toast-success',
+                iconTheme: {
+                  primary: 'hsl(var(--primary))',
+                  secondary: 'hsl(var(--primary-foreground))',
+                },
+              },
+              error: {
+                className: 'dg-toast dg-toast-error',
+                iconTheme: {
+                  primary: 'hsl(var(--destructive))',
+                  secondary: 'hsl(var(--destructive-foreground))',
+                },
+              },
+              loading: {
+                className: 'dg-toast',
               },
             }}
           />

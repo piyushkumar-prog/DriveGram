@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { User, Search, Moon, Sun, LogOut, UserCircle } from 'lucide-react'
+import { Search, Moon, Sun, LogOut, UserCircle } from 'lucide-react'
 
 interface User {
   id: number
@@ -22,22 +22,23 @@ export function Header({ user, onLogout, onSearchToggle, onDarkModeToggle, isDar
   const [showUserMenu, setShowUserMenu] = useState(false)
 
   return (
-    <header className="bg-card border-b border-border">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="bg-card border-b border-border sticky top-0 z-30">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <div className="flex items-center space-x-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
-                <User className="w-5 h-5 text-primary" />
-              </div>
-              <h1 className="text-xl font-semibold text-foreground">DriveGram</h1>
+              <img 
+                src={isDarkMode ? "/logo-dark.png" : "/logo-light.png"} 
+                alt="DriveGram" 
+                className="h-10 w-auto object-contain" 
+              />
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
             <button
               onClick={onSearchToggle}
-              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
               title="Search"
             >
               <Search className="w-5 h-5" />
@@ -45,7 +46,7 @@ export function Header({ user, onLogout, onSearchToggle, onDarkModeToggle, isDar
 
             <button
               onClick={onDarkModeToggle}
-              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
               title="Toggle dark mode"
             >
               {isDarkMode ? (
@@ -58,7 +59,7 @@ export function Header({ user, onLogout, onSearchToggle, onDarkModeToggle, isDar
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center space-x-2 p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+                className="flex items-center space-x-2 p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
               >
                 <UserCircle className="w-5 h-5" />
                 <span className="text-sm font-medium">
@@ -67,9 +68,9 @@ export function Header({ user, onLogout, onSearchToggle, onDarkModeToggle, isDar
               </button>
 
               {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-md shadow-lg z-50">
+                <div className="absolute right-0 mt-2 w-52 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
                   <div className="px-4 py-2 border-b border-border">
-                    <p className="text-sm font-medium text-foreground">
+                    <p className="text-sm font-semibold text-foreground">
                       {user?.first_name} {user?.last_name}
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -81,7 +82,7 @@ export function Header({ user, onLogout, onSearchToggle, onDarkModeToggle, isDar
                       onLogout()
                       setShowUserMenu(false)
                     }}
-                    className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    className="w-full flex items-center space-x-2 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
                     <span>Logout</span>

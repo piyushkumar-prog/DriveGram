@@ -32,7 +32,7 @@ func main() {
 
 	// Initialize services
 	telegramService := services.NewTelegramService(cfg)
-	authService := services.NewAuthService(db, cfg.JWTSecret)
+	authService := services.NewAuthService(db, cfg.JWTSecret, cfg)
 	fileService := services.NewFileService(db, telegramService)
 
 	// Initialize handlers
@@ -63,12 +63,23 @@ func main() {
 	})
 
 	// Serve Next.js static files
-	r.Static("/static", "./frontend/out/_next/static")
+	r.Static("/_next", "./frontend/out/_next")
 	r.StaticFile("/", "./frontend/out/index.html")
-	r.StaticFile("/favicon.ico", "./frontend/out/favicon.ico")
+	r.StaticFile("/favicon.svg", "./frontend/out/favicon.svg")
+	r.StaticFile("/favicon.png", "./frontend/out/favicon.png")
+	r.StaticFile("/logo-light.png", "./frontend/out/logo-light.png")
+	r.StaticFile("/logo-dark.png", "./frontend/out/logo-dark.png")
+	r.StaticFile("/logo.svg", "./frontend/out/logo.svg")
 
 	// Serve all Next.js routes
 	r.NoRoute(func(c *gin.Context) {
+		// Check if the request is for a file that might exist in the out directory
+		// (This is a simple way to serve other root-level static files)
+		filePath := "./frontend/out" + c.Request.URL.Path
+		if _, err := os.Stat(filePath); err == nil {
+			c.File(filePath)
+			return
+		}
 		c.File("./frontend/out/index.html")
 	})
 
@@ -95,6 +106,7 @@ func main() {
 			files.DELETE("/:id", fileHandler.DeleteFile)
 			files.POST("/mkdir", fileHandler.CreateDirectory)
 			files.PUT("/:id", fileHandler.RenameFile)
+			files.POST("/sync", fileHandler.SyncFiles)
 		}
 
 		// Search route

@@ -3,10 +3,12 @@ package services
 import (
 	"context"
 	"drivegram/internal/models"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -24,8 +26,10 @@ func NewFileService(db *gorm.DB, telegramService *TelegramService) *FileService 
 }
 
 func (s *FileService) UploadFile(ctx context.Context, userID uint, folderID *uint, file io.Reader, size int64, filename string) (*models.File, error) {
+	safeName := sanitizeFilename(filepath.Base(filename))
+
 	// Create temporary file path
-	tempPath := filepath.Join("./data/temp", filename)
+	tempPath := filepath.Join("./data/temp", safeName)
 	if err := os.MkdirAll("./data/temp", 0755); err != nil {
 		return nil, err
 	}
@@ -35,10 +39,13 @@ func (s *FileService) UploadFile(ctx context.Context, userID uint, folderID *uin
 	if err != nil {
 		return nil, err
 	}
-	defer tempFile.Close()
 
 	_, err = tempFile.ReadFrom(file)
 	if err != nil {
+		tempFile.Close()
+		return nil, err
+	}
+	if err := tempFile.Close(); err != nil {
 		return nil, err
 	}
 
@@ -49,25 +56,36 @@ func (s *FileService) UploadFile(ctx context.Context, userID uint, folderID *uin
 	}
 
 	// Upload to Telegram
-	telegramFile, err := s.telegramService.UploadFile(ctx, tempPath, user.TelegramID)
+	telegramFile, err := s.telegramService.UploadFile(ctx, user.SessionData, tempPath)
 	if err != nil {
 		os.Remove(tempPath) // Clean up temp file
 		return nil, err
 	}
 
-	// Clean up temp file
-	os.Remove(tempPath)
+	// Persist a local copy so download/stream works reliably in mock mode.
+	storageDir := filepath.Join("./data/storage", fmt.Sprintf("%d", userID))
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		os.Remove(tempPath)
+		return nil, err
+	}
+	storedFilePath := filepath.Join(storageDir, fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName))
+	if err := moveFileWithRetry(tempPath, storedFilePath); err != nil {
+		os.Remove(tempPath)
+		return nil, err
+	}
 
 	// Save file metadata to database
 	fileRecord := &models.File{
-		Name:           sanitizeFilename(filename),
-		OriginalName:   filename,
-		Size:           size,
-		MimeType:       getMimeType(filename),
-		TelegramFileID: telegramFile.TelegramFileID,
-		TelegramMsgID:  telegramFile.TelegramMsgID,
-		UserID:         userID,
-		FolderID:       folderID,
+		Name:               safeName,
+		OriginalName:       filename,
+		Size:               size,
+		MimeType:           getMimeType(filename),
+		TelegramFileID:     telegramFile.TelegramFileID,
+		TelegramAccessHash: telegramFile.TelegramAccessHash,
+		TelegramMsgID:      telegramFile.TelegramMsgID,
+		UserID:             userID,
+		FolderID:           folderID,
+		FilePath:           storedFilePath,
 	}
 
 	if err := s.db.Create(fileRecord).Error; err != nil {
@@ -108,15 +126,32 @@ func (s *FileService) DownloadFile(ctx context.Context, userID uint, fileID uint
 		return "", err
 	}
 
+	// Prefer local persisted copy when available.
+	if file.FilePath != "" {
+		if _, err := os.Stat(file.FilePath); err == nil {
+			return file.FilePath, nil
+		}
+	}
+
 	// Download from Telegram to temporary location
 	tempPath := filepath.Join("./data/downloads", file.OriginalName)
 	if err := os.MkdirAll("./data/downloads", 0755); err != nil {
 		return "", err
 	}
 
-	err = s.telegramService.DownloadFile(ctx, file.TelegramFileID, tempPath)
+	// Get user info for Telegram
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return "", err
+	}
+
+	err = s.telegramService.DownloadFile(ctx, user.SessionData, *file, tempPath)
 	if err != nil {
 		return "", err
+	}
+
+	if _, err := os.Stat(tempPath); err != nil {
+		return "", fmt.Errorf("downloaded file not found")
 	}
 
 	return tempPath, nil
@@ -130,7 +165,26 @@ func (s *FileService) StreamFile(ctx context.Context, userID uint, fileID uint) 
 		return nil, 0, err
 	}
 
-	reader, size, err := s.telegramService.StreamFile(ctx, file.TelegramFileID)
+	// Prefer local persisted copy when available.
+	if file.FilePath != "" {
+		localFile, err := os.Open(file.FilePath)
+		if err == nil {
+			info, statErr := localFile.Stat()
+			if statErr != nil {
+				localFile.Close()
+				return nil, 0, statErr
+			}
+			return localFile, info.Size(), nil
+		}
+	}
+
+	// Get user info for Telegram
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return nil, 0, err
+	}
+
+	reader, size, err := s.telegramService.StreamFile(ctx, user.SessionData, *file)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -144,13 +198,53 @@ func (s *FileService) DeleteFile(ctx context.Context, userID uint, fileID uint) 
 		return err
 	}
 
-	// Delete from Telegram
-	if err := s.telegramService.DeleteFile(ctx, file.TelegramMsgID); err != nil {
+	// Get user info for Telegram
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
 		return err
+	}
+
+	// Delete from Telegram
+	if err := s.telegramService.DeleteFile(ctx, user.SessionData, file.TelegramMsgID); err != nil {
+		return err
+	}
+
+	// Best-effort cleanup of local persisted file.
+	if file.FilePath != "" {
+		_ = os.Remove(file.FilePath)
 	}
 
 	// Delete from database
 	return s.db.Delete(file).Error
+}
+
+func (s *FileService) SyncTelegramFiles(ctx context.Context, userID uint) error {
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return err
+	}
+
+	tgFiles, err := s.telegramService.GetUserFiles(ctx, user.SessionData)
+	if err != nil {
+		return err
+	}
+
+	for _, tgFile := range tgFiles {
+		// Check if file already exists
+		var existing models.File
+		err := s.db.Where("user_id = ? AND telegram_file_id = ?", userID, tgFile.TelegramFileID).First(&existing).Error
+		if err == nil {
+			continue // Already exists
+		}
+
+		// Save new file record
+		tgFile.UserID = userID
+		if err := s.db.Create(tgFile).Error; err != nil {
+			fmt.Printf("Error saving synced file: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *FileService) CreateFolder(userID uint, name string, parentID *uint) (*models.Folder, error) {
@@ -242,4 +336,64 @@ func getMimeType(filename string) string {
 		return mimeType
 	}
 	return "application/octet-stream"
+}
+
+func moveFileWithRetry(src, dst string) error {
+	var lastErr error
+	for i := 0; i < 8; i++ {
+		if err := os.Rename(src, dst); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			time.Sleep(120 * time.Millisecond)
+		}
+	}
+
+	if err := copyFileWithRetry(src, dst); err != nil {
+		if lastErr != nil {
+			return fmt.Errorf("%w (copy fallback failed: %v)", lastErr, err)
+		}
+		return err
+	}
+
+	_ = os.Remove(src)
+	return nil
+}
+
+func copyFileWithRetry(src, dst string) error {
+	var lastErr error
+	for i := 0; i < 8; i++ {
+		in, err := os.Open(src)
+		if err != nil {
+			lastErr = err
+			time.Sleep(120 * time.Millisecond)
+			continue
+		}
+
+		out, err := os.Create(dst)
+		if err != nil {
+			in.Close()
+			lastErr = err
+			time.Sleep(120 * time.Millisecond)
+			continue
+		}
+
+		_, copyErr := io.Copy(out, in)
+		closeOutErr := out.Close()
+		closeInErr := in.Close()
+		if copyErr == nil && closeOutErr == nil && closeInErr == nil {
+			return nil
+		}
+
+		if copyErr != nil {
+			lastErr = copyErr
+		} else if closeOutErr != nil {
+			lastErr = closeOutErr
+		} else {
+			lastErr = closeInErr
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+
+	return lastErr
 }

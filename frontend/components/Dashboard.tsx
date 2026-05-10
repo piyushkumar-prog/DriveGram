@@ -3,41 +3,71 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { Header } from './Header'
-import { Sidebar } from './Sidebar'
 import { FileGrid } from './FileGrid'
 import { SearchBar } from './SearchBar'
 import { UploadModal } from './UploadModal'
 import { FolderModal } from './FolderModal'
+import { FilePreviewModal } from './FilePreviewModal'
 import { useFiles } from '@/hooks/useFiles'
 import { useFolders } from '@/hooks/useFolders'
+import { Breadcrumbs } from './Breadcrumbs'
 import { LoadingSpinner } from './LoadingSpinner'
-import { FolderOpen, Upload } from 'lucide-react'
+import { Sidebar, SidebarCategory } from './Sidebar'
+import { FolderOpen, Upload, LayoutGrid, List, RefreshCw } from 'lucide-react'
+import { useTheme } from '@/hooks/useTheme'
+
+interface PreviewFileItem {
+  id: number
+  name: string
+  original_name: string
+  size: number
+  mime_type: string
+}
+
+interface BreadcrumbItem {
+  id: number | null
+  name: string
+}
 
 export function Dashboard() {
   const { user, logout } = useAuth()
-  const { files, isLoading: filesLoading, uploadFile, deleteFile, searchFiles } = useFiles()
-  const { folders, isLoading: foldersLoading, createFolder } = useFolders()
+  const { files, isLoading: filesLoading, loadFiles, uploadFile, deleteFile, searchFiles, starredIds, toggleStar, renameFile, syncFiles } = useFiles()
+  const { folders, isLoading: foldersLoading, loadFolders, createFolder } = useFolders()
   const [currentFolder, setCurrentFolder] = useState<number | null>(null)
+  const [currentCategory, setCurrentCategory] = useState<SidebarCategory>('all')
+  const [path, setPath] = useState<BreadcrumbItem[]>([])
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [showSearch, setShowSearch] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
   const [showFolder, setShowFolder] = useState(false)
+  const [previewFile, setPreviewFile] = useState<PreviewFileItem | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [isDarkMode, setIsDarkMode] = useState(false)
+  const { isDarkMode, toggleDarkMode } = useTheme()
 
   useEffect(() => {
-    // Check for dark mode preference
-    const isDark = localStorage.getItem('darkMode') === 'true'
-    setIsDarkMode(isDark)
-    if (isDark) {
-      document.documentElement.classList.add('dark')
-    }
+    // Check for view mode preference
+    const savedViewMode = localStorage.getItem('viewMode') as 'grid' | 'list'
+    if (savedViewMode) setViewMode(savedViewMode)
   }, [])
 
-  const toggleDarkMode = () => {
-    const newDarkMode = !isDarkMode
-    setIsDarkMode(newDarkMode)
-    localStorage.setItem('darkMode', newDarkMode.toString())
-    document.documentElement.classList.toggle('dark')
+  useEffect(() => {
+    if (!searchQuery) {
+      if (currentCategory === 'all') {
+        loadFiles(currentFolder || undefined)
+        loadFolders(currentFolder || undefined)
+      } else if (currentCategory === 'recent') {
+        // For recent, we might want to load all files and filter
+        loadFiles() 
+      }
+      // For starred/trash, we'll use placeholder logic for now
+    }
+  }, [currentFolder, currentCategory, searchQuery])
+
+
+  const toggleViewMode = () => {
+    const newMode = viewMode === 'grid' ? 'list' : 'grid'
+    setViewMode(newMode)
+    localStorage.setItem('viewMode', newMode)
   }
 
   const handleSearch = async (query: string) => {
@@ -48,11 +78,44 @@ export function Dashboard() {
   }
 
   const handleFolderClick = (folderId: number) => {
-    setCurrentFolder(folderId)
+    const folder = folders.find(f => f.id === folderId)
+    if (folder) {
+      setPath(prev => [...prev, { id: folder.id, name: folder.name }])
+      setCurrentFolder(folderId)
+      setCurrentCategory('all')
+    }
+  }
+
+  const handleBreadcrumbNavigate = (id: number | null) => {
+    if (id === null) {
+      setPath([])
+      setCurrentFolder(null)
+    } else {
+      const index = path.findIndex(item => item.id === id)
+      if (index !== -1) {
+        setPath(path.slice(0, index + 1))
+        setCurrentFolder(id)
+      }
+    }
+    setCurrentCategory('all')
+    setSearchQuery('')
   }
 
   const handleBackClick = () => {
+    if (path.length > 0) {
+      const newPath = path.slice(0, -1)
+      setPath(newPath)
+      setCurrentFolder(newPath.length > 0 ? newPath[newPath.length - 1].id : null)
+    } else {
+      setCurrentFolder(null)
+    }
+    setSearchQuery('')
+  }
+
+  const handleCategoryClick = (category: SidebarCategory) => {
+    setCurrentCategory(category)
     setCurrentFolder(null)
+    setPath([])
     setSearchQuery('')
   }
 
@@ -68,8 +131,30 @@ export function Dashboard() {
 
   const isLoading = filesLoading || foldersLoading
 
+  // Filtering logic
+  const getFilteredFiles = () => {
+    if (searchQuery) return files
+    if (currentCategory === 'all') return files
+    if (currentCategory === 'recent') {
+      return [...files].sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ).slice(0, 20)
+    }
+    if (currentCategory === 'starred') {
+      return files.filter(f => starredIds.has(f.id))
+    }
+    if (currentCategory === 'trash') return [] // Placeholder
+    return files
+  }
+
+  const getFilteredFolders = () => {
+    if (searchQuery) return folders
+    if (currentCategory === 'all') return folders
+    return [] // Folders only shown in 'all' view
+  }
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       <Header
         user={user}
         onLogout={logout}
@@ -78,15 +163,18 @@ export function Dashboard() {
         isDarkMode={isDarkMode}
       />
 
-      <div className="flex">
+      <div className="flex-1 flex w-full max-w-[1440px] mx-auto">
         <Sidebar
           folders={folders}
           currentFolder={currentFolder}
+          currentCategory={currentCategory}
           onFolderClick={handleFolderClick}
+          onHomeClick={() => handleBreadcrumbNavigate(null)}
+          onCategoryClick={handleCategoryClick}
           onBackClick={currentFolder !== null ? handleBackClick : undefined}
         />
 
-        <main className="flex-1 p-6">
+        <main className="flex-1 p-4 md:p-6 overflow-y-auto h-[calc(100vh-64px)]">
           {showSearch && (
             <SearchBar
               onSearch={handleSearch}
@@ -97,10 +185,19 @@ export function Dashboard() {
             />
           )}
 
-          <div className="mb-6 flex items-center justify-between">
+          {!searchQuery && currentCategory === 'all' && (
+            <Breadcrumbs 
+              path={path} 
+              onNavigate={handleBreadcrumbNavigate} 
+            />
+          )}
+
+          <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center space-x-4">
-              <h1 className="text-2xl font-bold text-foreground">
-                {searchQuery ? 'Search Results' : currentFolder ? 'Folder' : 'My Files'}
+              <h1 className="text-2xl font-bold text-foreground tracking-tight capitalize">
+                {searchQuery ? 'Search Results' : 
+                 currentFolder ? path[path.length - 1]?.name : 
+                 currentCategory === 'all' ? 'My Files' : currentCategory}
               </h1>
               {searchQuery && (
                 <span className="text-sm text-muted-foreground">
@@ -110,20 +207,58 @@ export function Dashboard() {
             </div>
 
             <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setShowUpload(true)}
-                className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition duration-200 flex items-center"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload
-              </button>
-              <button
-                onClick={() => setShowFolder(true)}
-                className="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/80 transition duration-200 flex items-center"
-              >
-                <FolderOpen className="w-4 h-4 mr-2" />
-                New Folder
-              </button>
+              <div className="flex items-center bg-muted rounded-xl p-1 mr-2">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewMode === 'grid' 
+                      ? 'bg-card text-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Grid View"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewMode === 'list' 
+                      ? 'bg-card text-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="List View"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+
+              {currentCategory === 'all' && (
+                <>
+                  <button
+                    onClick={() => syncFiles(currentFolder || undefined)}
+                    disabled={filesLoading}
+                    className="bg-secondary text-secondary-foreground px-4 py-2 rounded-xl hover:bg-secondary/80 transition-all flex items-center font-semibold text-sm disabled:opacity-50"
+                    title="Sync with Telegram Saved Messages"
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${filesLoading ? 'animate-spin' : ''}`} />
+                    Sync
+                  </button>
+                  <button
+                    onClick={() => setShowUpload(true)}
+                    className="bg-primary text-primary-foreground px-4 py-2 rounded-xl hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 flex items-center font-semibold text-sm"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload
+                  </button>
+                  <button
+                    onClick={() => setShowFolder(true)}
+                    className="bg-secondary text-secondary-foreground px-4 py-2 rounded-xl hover:bg-secondary/80 transition-all flex items-center font-semibold text-sm"
+                  >
+                    <FolderOpen className="w-4 h-4 mr-2" />
+                    New Folder
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -133,11 +268,16 @@ export function Dashboard() {
             </div>
           ) : (
             <FileGrid
-              files={files}
-              folders={folders}
+              files={getFilteredFiles()}
+              folders={getFilteredFolders()}
               onFileDelete={deleteFile}
+              onFileRename={renameFile}
               onFolderClick={handleFolderClick}
+              onFileOpen={(file) => setPreviewFile(file)}
+              onToggleStar={toggleStar}
+              starredIds={starredIds}
               searchQuery={searchQuery}
+              viewMode={viewMode}
             />
           )}
         </main>
@@ -154,6 +294,13 @@ export function Dashboard() {
         <FolderModal
           onClose={() => setShowFolder(false)}
           onCreateFolder={handleCreateFolder}
+        />
+      )}
+
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
         />
       )}
     </div>

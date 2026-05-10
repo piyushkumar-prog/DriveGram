@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -44,10 +44,14 @@ export const uploadFile = async (file: File, folderId?: number) => {
   }
 
   const token = localStorage.getItem('drivegram_token')
+  if (!token) {
+    throw new Error('Authentication required. Please login again.')
+  }
+
   const response = await axios.post(`${API_BASE_URL}/files/upload`, formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
     },
   })
 
@@ -57,9 +61,13 @@ export const uploadFile = async (file: File, folderId?: number) => {
 // Download file
 export const downloadFile = async (fileId: number) => {
   const token = localStorage.getItem('drivegram_token')
+  if (!token) {
+    throw new Error('Authentication required. Please login again.')
+  }
+
   const response = await axios.get(`${API_BASE_URL}/files/${fileId}/download`, {
     headers: {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
     },
     responseType: 'blob',
   })
@@ -67,11 +75,26 @@ export const downloadFile = async (fileId: number) => {
   return response
 }
 
+// Sync files from Telegram
+export const syncTelegramFiles = async () => {
+  const token = localStorage.getItem('drivegram_token')
+  if (!token) {
+    throw new Error('Authentication required. Please login again.')
+  }
+
+  const response = await api.post('/files/sync')
+  return response.data
+}
+
 // Stream file (for video/audio)
 export const streamFile = async (fileId: number, range?: string) => {
   const token = localStorage.getItem('drivegram_token')
+  if (!token) {
+    throw new Error('Authentication required. Please login again.')
+  }
+
   const headers: any = {
-    'Authorization': `Bearer ${token}`,
+    Authorization: `Bearer ${token}`,
   }
   
   if (range) {
@@ -84,4 +107,24 @@ export const streamFile = async (fileId: number, range?: string) => {
   })
 
   return response
+}
+
+export const getAuthenticatedFileUrl = (
+  fileId: number,
+  endpoint: 'download' | 'stream' = 'stream',
+  inline = false
+) => {
+  const token = localStorage.getItem('drivegram_token')
+  if (!token) return ''
+
+  const base = endpoint === 'download'
+    ? `${API_BASE_URL}/files/${fileId}/download`
+    : `${API_BASE_URL}/files/${fileId}/stream`
+
+  const params = new URLSearchParams({ token })
+  if (endpoint === 'download' && inline) {
+    params.set('inline', '1')
+  }
+
+  return `${base}?${params.toString()}`
 }

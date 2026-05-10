@@ -26,8 +26,8 @@ export function FolderModal({ onClose, onCreateFolder }: FolderModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card rounded-xl shadow-xl w-full max-w-md fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-md fade-in">
         <div className="flex items-center justify-between p-6 border-b border-border">
           <h2 className="text-xl font-semibold text-foreground">New Folder</h2>
           <button
@@ -49,7 +49,7 @@ export function FolderModal({ onClose, onCreateFolder }: FolderModalProps) {
               value={folderName}
               onChange={(e) => setFolderName(e.target.value)}
               placeholder="Enter folder name"
-              className="w-full px-3 py-2 bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+            className="w-full px-3 py-2.5 bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
               autoFocus
               required
             />
@@ -67,7 +67,7 @@ export function FolderModal({ onClose, onCreateFolder }: FolderModalProps) {
             <button
               type="submit"
               disabled={!folderName.trim() || isCreating}
-              className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg hover:bg-primary/90 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isCreating ? (
                 'Creating...'

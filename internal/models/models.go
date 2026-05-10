@@ -38,8 +38,9 @@ type File struct {
 	OriginalName    string    `json:"original_name"`
 	Size            int64     `json:"size"`
 	MimeType        string    `json:"mime_type"`
-	TelegramFileID  string    `gorm:"uniqueIndex" json:"telegram_file_id"`
-	TelegramMsgID   int       `json:"telegram_msg_id"`
+	TelegramFileID     string    `gorm:"uniqueIndex" json:"telegram_file_id"`
+	TelegramAccessHash int64     `json:"telegram_access_hash"`
+	TelegramMsgID      int       `json:"telegram_msg_id"`
 	UserID          uint      `json:"user_id"`
 	FolderID        *uint     `json:"folder_id"`
 	FilePath        string    `json:"file_path"`

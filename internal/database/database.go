@@ -1,11 +1,15 @@
 package database
 
 import (
+	"database/sql"
 	"drivegram/internal/models"
+	"os"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"os"
+
+	_ "modernc.org/sqlite"
 )
 
 func Initialize(dbPath string) (*gorm.DB, error) {
@@ -19,8 +23,13 @@ func Initialize(dbPath string) (*gorm.DB, error) {
 		Logger: logger.Default.LogMode(logger.Silent),
 	}
 
-	// Open database connection
-	db, err := gorm.Open(sqlite.Open(dbPath), config)
+	// Open database connection using modernc.org/sqlite
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := gorm.Open(sqlite.Dialector{Conn: sqlDB}, config)
 	if err != nil {
 		return nil, err
 	}

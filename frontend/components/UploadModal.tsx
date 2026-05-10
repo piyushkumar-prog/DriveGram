@@ -28,7 +28,7 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
     setFiles(prev => [...prev, ...newFiles])
   }, [])
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     multiple: true,
     noClick: true
@@ -52,6 +52,8 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
     try {
       await onUpload(files.map(f => f.file))
       onClose()
+    } catch {
+      // Errors are surfaced by hooks/toasts; avoid unhandled promise rejection in UI.
     } finally {
       setIsUploading(false)
     }
@@ -66,8 +68,8 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col fade-in">
         <div className="flex items-center justify-between p-6 border-b border-border">
           <h2 className="text-xl font-semibold text-foreground">Upload Files</h2>
           <button
@@ -78,7 +80,7 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto">
           {/* Drop Zone */}
           <div
             {...getRootProps()}
@@ -97,8 +99,8 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
               </p>
               <button
                 type="button"
-                onClick={() => document.querySelector('input[type="file"]')?.click()}
-                className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition duration-200"
+                onClick={open}
+                className="bg-primary text-primary-foreground px-4 py-2 rounded-lg hover:bg-primary/90 transition duration-200"
               >
                 Choose Files
               </button>
@@ -152,32 +154,35 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
               </div>
             </div>
           )}
+
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={handleUpload}
+              disabled={files.length === 0 || isUploading}
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg hover:bg-primary/90 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            >
+              {isUploading ? (
+                <>
+                  <LoadingSpinner size="sm" className="mr-2" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload {files.length} {files.length === 1 ? 'File' : 'Files'}
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-border">
+        <div className="flex items-center justify-end p-6 border-t border-border">
           <button
             onClick={onClose}
             disabled={isUploading}
             className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
             Cancel
-          </button>
-          <button
-            onClick={handleUpload}
-            disabled={files.length === 0 || isUploading}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-          >
-            {isUploading ? (
-              <>
-                <LoadingSpinner size="sm" className="mr-2" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4 mr-2" />
-                Upload {files.length} {files.length === 1 ? 'File' : 'Files'}
-              </>
-            )}
           </button>
         </div>
       </div>

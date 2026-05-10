@@ -18,7 +18,7 @@ interface User {
 interface AuthContextType {
   user: User | null
   isLoading: boolean
-  login: (phoneNumber: string) => Promise<void>
+  login: (phoneNumber: string) => Promise<{ phone_code_hash: string; timeout: number; message?: string }>
   verifyOTP: (phoneNumber: string, code: string, phoneCodeHash: string) => Promise<void>
   logout: () => void
   checkAuth: () => Promise<void>
@@ -42,17 +42,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.data) {
         setUser(response.data)
       }
-    } catch (error) {
-      localStorage.removeItem('drivegram_token')
+    } catch (error: any) {
+      // Keep token on transient/network failures; clear only when token is truly invalid.
+      if (error?.response?.status === 401) {
+        localStorage.removeItem('drivegram_token')
+      }
     } finally {
       setIsLoading(false)
     }
   }
 
-  const login = async (phoneNumber: string) => {
+  const login = async (phoneNumber: string): Promise<{ phone_code_hash: string; timeout: number; message?: string }> => {
     try {
       const response = await api.post('/auth/login', { phone_number: phoneNumber })
-      toast.success('Verification code sent! Use "12345" for demo')
+      toast.success('Verification code sent! Check the alert popup for your code')
       return response.data
     } catch (error: any) {
       const message = error.response?.data?.error || 'Failed to send verification code'
