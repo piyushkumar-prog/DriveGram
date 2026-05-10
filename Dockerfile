@@ -54,7 +54,7 @@ COPY --from=backend-builder /app/main .
 COPY --from=frontend-builder /app/frontend/out ./frontend/out
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8088
 
 # Run the application
 CMD ["./main"]

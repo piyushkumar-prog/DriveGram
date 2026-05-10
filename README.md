@@ -1,5 +1,5 @@
-![DriveGram](frontend/public/drivegram.png)  
-  
+<img src="frontend/public/drivegram.png" alt="DriveGram" width="700" />
+
 # DriveGram
 
 DriveGram is a full-stack application that transforms your Telegram **Saved Messages** into a personal, high-performance cloud storage workspace. It enables you to manage your files with a modern UI while leveraging Telegram's secure and unlimited infrastructure.
@@ -20,134 +20,67 @@ DriveGram is a full-stack application that transforms your Telegram **Saved Mess
 - **Backend**: Go + Gin (MTProto integration via `gotd/td`)
 - **Frontend**: Next.js + React + Tailwind CSS
 - **Database**: SQLite (via GORM)
+- **Containerization**: Docker + Docker Compose
 
 ---
 
-## Detailed Setup Guide (Step-by-Step)
+## Deployment with Docker (Recommended)
 
-### 1. Install Required Tools
+Docker is the simplest way to run DriveGram. Follow these steps to set it up on your system:
 
-Install these first:
-- Git: [https://git-scm.com/downloads](https://git-scm.com/downloads)
-- Go: [https://go.dev/dl/](https://go.dev/dl/)
-- Node.js LTS: [https://nodejs.org/](https://nodejs.org/)
+### 1. Install Docker
+First, ensure you have Docker Desktop installed on your computer:
+- **Windows/Mac/Linux**: Download from [Docker Official Site](https://www.docker.com/products/docker-desktop/)
 
-Verify installation:
-
-```bash
-git --version
-go version
-node -v
-npm -v
-```
-
-### 2. Create Telegram API Credentials
-
-1. Open [https://my.telegram.org](https://my.telegram.org)
-2. Login with your Telegram account
-3. Go to **API development tools**
-4. Create an app
-5. Copy:
-- `api_id`
-- `api_hash`
-
-You will use them in `.env`.
-
-### 3. Clone the Repository
+### 2. Prepare the Project
+Open your terminal (Command Prompt, PowerShell, or Terminal) and follow these commands:
 
 ```bash
-git clone <your-repo-url>
+# 1. Clone the repository
+git clone https://github.com/piyushkumar-prog/DriveGram
+
+# 2. Navigate to the project folder
 cd DriveGram
-```
 
-### 4. Configure Environment Variables
-
-Create `.env` from example:
-
-```bash
+# 3. Create your environment file
 cp .env.example .env
 ```
+*Note: Open the `.env` file and fill in your `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`.*
 
-If you're on Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Edit `.env` and fill all required values:
-
-```env
-TELEGRAM_API_ID=your_api_id
-TELEGRAM_API_HASH=your_api_hash
-JWT_SECRET=your_long_random_secret
-SERVER_PORT=8088
-SERVER_HOST=localhost
-DB_PATH=./data/drivegram.db
-MAX_FILE_SIZE=2097152000
-UPLOAD_CHUNK_SIZE=1048576
-```
-
-Notes:
-- `JWT_SECRET` should be long and random.
-- Keep `.env` private (already ignored by git).
-
-### 5. Install Backend Dependencies
-
+### 3. Launch the Application
+Run the following command to build and start everything:
 ```bash
+docker-compose up --build
+```
+
+### 4. Access the Dashboard
+Once the logs show the server is running, open:
+**[http://localhost:8088](http://localhost:8088)**
+
+---
+
+## Manual Setup Guide
+
+If you prefer to run the application locally without Docker:
+
+### 1. Requirements
+- Go (1.25+), Node.js (18+), and Git.
+
+### 2. Steps
+```bash
+# 1. Clone the repository
+git clone https://github.com/piyushkumar-prog/DriveGram
+cd DriveGram
+
+# 2. Setup Backend
 go mod tidy
-go mod download
-```
+go run main.go
 
-### 6. Install Frontend Dependencies
-
-```bash
+# 3. Setup Frontend (In a new terminal)
 cd frontend
 npm install
-cd ..
-```
-
-### 7. Build Frontend Static Output
-
-Backend serves files from `frontend/out`, so build/export frontend first.
-
-```bash
-cd frontend
 npm run build
-cd ..
 ```
-
-### 8. Run Backend Server
-
-```bash
-go run main.go
-```
-
-Expected server:
-- API + app on `http://localhost:8088`
-
-### 9. Use the App
-
-1. Open `http://localhost:8088`
-2. Enter Telegram phone number
-3. Enter OTP received in Telegram/SMS
-4. Start using DriveGram:
-- Upload files
-- Sync Telegram files
-- Preview/download/delete
-
-### 10. Important Runtime Notes
-
-- If login fails, regenerate OTP and retry.
-- If sync fails with auth/session errors, logout and login again.
-- When frontend changes, rebuild frontend:
-
-```bash
-cd frontend
-npm run build
-cd ..
-```
-
-Then restart backend.
 
 ---
 
@@ -155,70 +88,29 @@ Then restart backend.
 
 ```text
 DriveGram/
-+- internal/
-  +- config/
-  +- database/
-  +- handlers/
-  +- middleware/
-  +- models/
-  +- services/
-+- frontend/
-  +- app/
-  +- components/
-  +- hooks/
-  +- lib/
-  +- public/
-+- .env.example
-+- go.mod
-+- main.go
++- internal/        # Go backend logic and MTProto services
++- frontend/        # Next.js frontend source code
++- data/            # Local SQLite database and sessions (Auto-generated)
++- Dockerfile       # Multi-stage Docker build file
++- docker-compose.yml
++- main.go          # Application entry point
 ```
 
 ---
 
 ## Troubleshooting
 
-### OTP verify returns 401
-- Make sure you are entering the latest OTP.
-- Request a fresh OTP and try again.
-- Ensure `.env` Telegram credentials are correct.
-
-### Sync shows Telegram auth/session error
-- Logout and login again (refresh session).
-- Restart server after changing auth code.
+- **Login Fails**: Ensure your API ID and Hash are correct in `.env`.
+- **Sync Issues**: Logout and login again to refresh the MTProto session.
+- **Docker**: Make sure Docker Desktop is running before executing `docker-compose`.
 
 ---
 
 ## Security Notes
-
-- Never commit `.env`.
-- Use strong `JWT_SECRET`.
-- Telegram account access should be used only on trusted systems.
-
----
-
-## Short Guide (Quick Start)
-
-```bash
-git clone <your-repo-url>
-cd DriveGram
-cp .env.example .env
-# Fill TELEGRAM_API_ID, TELEGRAM_API_HASH, JWT_SECRET in .env
-
-go mod tidy
-go mod download
-
-cd frontend
-npm install
-npm run build
-cd ..
-
-go run main.go
-```
-
-Open: `http://localhost:8088`
+- Your Telegram session is stored locally in `./data`. **Never share this folder.**
+- Keep your `.env` file private.
 
 ---
 
 ## License
-
 This project is licensed under the terms in `LICENSE`.
