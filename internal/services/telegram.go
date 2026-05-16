@@ -11,7 +11,6 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -134,26 +133,215 @@ func (s *TelegramService) DownloadFile(ctx context.Context, sessionData string, 
 
 	return client.Run(ctx, func(ctx context.Context) error {
 		api := client.API()
-		d := downloader.NewDownloader()
 
-		var location tg.InputFileLocationClass
-		fileID, _ := strconv.ParseInt(file.TelegramFileID, 10, 64)
+		// Fetch the message dynamically to get a fresh FileReference
+		history, err := api.MessagesGetMessages(ctx, []tg.InputMessageClass{
+			&tg.InputMessageID{ID: file.TelegramMsgID},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to fetch fresh message: %w", err)
+		}
 
-		if strings.HasPrefix(file.MimeType, "image/") {
-			location = &tg.InputPhotoFileLocation{
-				ID:            fileID,
-				AccessHash:    file.TelegramAccessHash,
-				ThumbSize:     "x", // Default thumb size
-			}
-		} else {
-			location = &tg.InputDocumentFileLocation{
-				ID:         fileID,
-				AccessHash: file.TelegramAccessHash,
+		var freshMedia tg.MessageMediaClass
+		if msgs, ok := history.AsModified(); ok {
+			for _, msg := range msgs.GetMessages() {
+				if m, ok := msg.(*tg.Message); ok && m.ID == file.TelegramMsgID {
+					freshMedia = m.Media
+					break
+				}
 			}
 		}
 
-		_, err := d.Download(api, location).ToPath(ctx, outputPath)
+		if freshMedia == nil {
+			return fmt.Errorf("message or media not found")
+		}
+
+		var location tg.InputFileLocationClass
+
+		switch media := freshMedia.(type) {
+		case *tg.MessageMediaDocument:
+			doc, ok := media.Document.AsNotEmpty()
+			if !ok {
+				return fmt.Errorf("document is empty")
+			}
+			location = &tg.InputDocumentFileLocation{
+				ID:            doc.ID,
+				AccessHash:    doc.AccessHash,
+				FileReference: doc.FileReference,
+			}
+		case *tg.MessageMediaPhoto:
+			photo, ok := media.Photo.AsNotEmpty()
+			if !ok {
+				return fmt.Errorf("photo is empty")
+			}
+			// Find largest size for thumb
+			var thumbSize string
+			var largestSize int64
+			for _, size := range photo.Sizes {
+				switch s := size.(type) {
+				case *tg.PhotoSize:
+					if int64(s.Size) > largestSize {
+						largestSize = int64(s.Size)
+						thumbSize = s.Type
+					}
+				case *tg.PhotoSizeProgressive:
+					if int64(s.W*s.H) > largestSize {
+						largestSize = int64(s.W * s.H)
+						thumbSize = s.Type
+					}
+				}
+			}
+			if thumbSize == "" {
+				thumbSize = "x"
+			}
+			
+			location = &tg.InputPhotoFileLocation{
+				ID:            photo.ID,
+				AccessHash:    photo.AccessHash,
+				FileReference: photo.FileReference,
+				ThumbSize:     thumbSize,
+			}
+		default:
+			return fmt.Errorf("unsupported media type")
+		}
+
+		d := downloader.NewDownloader()
+		_, err = d.Download(api, location).ToPath(ctx, outputPath)
 		return err
+	})
+}
+
+// StreamToWriter streams file bytes from Telegram directly into w, starting at byteOffset.
+// If limit <= 0, it streams until EOF. This enables true progressive HTTP streaming.
+func (s *TelegramService) StreamToWriter(ctx context.Context, sessionData string, file models.File, byteOffset int64, limit int64, w io.Writer) error {
+	client, err := s.GetClient(sessionData)
+	if err != nil {
+		return err
+	}
+
+	return client.Run(ctx, func(ctx context.Context) error {
+		api := client.API()
+
+		// Fetch fresh FileReference to avoid FILE_REFERENCE_EXPIRED errors
+		history, err := api.MessagesGetMessages(ctx, []tg.InputMessageClass{
+			&tg.InputMessageID{ID: file.TelegramMsgID},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to fetch fresh message: %w", err)
+		}
+
+		var freshMedia tg.MessageMediaClass
+		if msgs, ok := history.AsModified(); ok {
+			for _, msg := range msgs.GetMessages() {
+				if m, ok := msg.(*tg.Message); ok && m.ID == file.TelegramMsgID {
+					freshMedia = m.Media
+					break
+				}
+			}
+		}
+		if freshMedia == nil {
+			return fmt.Errorf("message or media not found")
+		}
+
+		var location tg.InputFileLocationClass
+		switch media := freshMedia.(type) {
+		case *tg.MessageMediaDocument:
+			doc, ok := media.Document.AsNotEmpty()
+			if !ok {
+				return fmt.Errorf("document is empty")
+			}
+			location = &tg.InputDocumentFileLocation{
+				ID:            doc.ID,
+				AccessHash:    doc.AccessHash,
+				FileReference: doc.FileReference,
+			}
+		case *tg.MessageMediaPhoto:
+			photo, ok := media.Photo.AsNotEmpty()
+			if !ok {
+				return fmt.Errorf("photo is empty")
+			}
+			var thumbSize string
+			var largestSize int64
+			for _, size := range photo.Sizes {
+				switch s := size.(type) {
+				case *tg.PhotoSize:
+					if int64(s.Size) > largestSize {
+						largestSize = int64(s.Size)
+						thumbSize = s.Type
+					}
+				case *tg.PhotoSizeProgressive:
+					if int64(s.W*s.H) > largestSize {
+						largestSize = int64(s.W * s.H)
+						thumbSize = s.Type
+					}
+				}
+			}
+			if thumbSize == "" {
+				thumbSize = "x"
+			}
+			location = &tg.InputPhotoFileLocation{
+				ID:            photo.ID,
+				AccessHash:    photo.AccessHash,
+				FileReference: photo.FileReference,
+				ThumbSize:     thumbSize,
+			}
+		default:
+			return fmt.Errorf("unsupported media type")
+		}
+
+		d := downloader.NewDownloader()
+		dl := d.Download(api, location)
+		if limit > 0 {
+			// Stream exactly `limit` bytes starting at `byteOffset` by piping
+			// through an io.LimitedReader on top of the full sequential stream.
+			// We do this by streaming to a pipe and discarding bytes before byteOffset.
+			pr, pw := io.Pipe()
+			errCh := make(chan error, 1)
+			go func() {
+				_, err := dl.Stream(ctx, pw)
+				pw.CloseWithError(err)
+				errCh <- err
+			}()
+
+			// Discard bytes before the requested range start
+			if byteOffset > 0 {
+				if _, err := io.CopyN(io.Discard, pr, byteOffset); err != nil {
+					pr.CloseWithError(err)
+					return fmt.Errorf("seek to offset %d failed: %w", byteOffset, err)
+				}
+			}
+
+			// Copy only the requested number of bytes
+			if _, err := io.CopyN(w, pr, limit); err != nil && err != io.EOF {
+				pr.CloseWithError(err)
+				return err
+			}
+			pr.Close()
+			return nil
+		}
+
+		// No limit — stream the entire file from byteOffset to EOF via pipe
+		pr, pw := io.Pipe()
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := dl.Stream(ctx, pw)
+			pw.CloseWithError(err)
+			errCh <- err
+		}()
+
+		if byteOffset > 0 {
+			if _, err := io.CopyN(io.Discard, pr, byteOffset); err != nil {
+				pr.CloseWithError(err)
+				return fmt.Errorf("seek to offset %d failed: %w", byteOffset, err)
+			}
+		}
+
+		if _, err := io.Copy(w, pr); err != nil && err != io.EOF {
+			pr.CloseWithError(err)
+			return err
+		}
+		pr.Close()
+		return <-errCh
 	})
 }
 

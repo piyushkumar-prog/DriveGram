@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"drivegram/internal/models"
 	"drivegram/internal/services"
 	"fmt"
 	"net/http"
@@ -193,124 +192,133 @@ func (h *FileHandler) StreamFile(c *gin.Context) {
 		return
 	}
 
-	// Handle range requests for streaming
+	totalSize := file.Size
+	mimeType := file.MimeType
+
+	// Parse Range header — browser sends "bytes=0-", "bytes=1024-2047", etc.
 	rangeHeader := c.GetHeader("Range")
+	start := int64(0)
+	end := totalSize - 1
+
 	if rangeHeader != "" {
-		h.handleRangeRequest(c, file, rangeHeader)
-		return
+		// Trim "bytes=" prefix
+		rangeStr := strings.TrimPrefix(rangeHeader, "bytes=")
+		parts := strings.SplitN(rangeStr, "-", 2)
+		if len(parts) == 2 {
+			if parts[0] != "" {
+				if n, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+					start = n
+				}
+			}
+			if parts[1] != "" {
+				if n, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+					end = n
+				}
+			}
+		}
 	}
 
-	reader, size, err := h.fileService.StreamFile(c.Request.Context(), userID, uint(fileID))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if start > end || start >= totalSize {
+		c.Header("Content-Range", fmt.Sprintf("bytes */%d", totalSize))
+		c.Status(http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-	defer reader.Close()
+	if end >= totalSize {
+		end = totalSize - 1
+	}
 
-	c.Header("Content-Type", file.MimeType)
-	c.Header("Content-Length", strconv.FormatInt(size, 10))
+	length := end - start + 1
+
+	// Set headers before writing any body
+	c.Header("Content-Type", mimeType)
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", file.OriginalName))
 	c.Header("Accept-Ranges", "bytes")
+	c.Header("Content-Length", strconv.FormatInt(length, 10))
 
-	// Stream the file
-	buf := make([]byte, 32*1024) // 32KB buffer
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			c.Writer.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
-	}
-}
-
-func (h *FileHandler) handleRangeRequest(c *gin.Context, file *models.File, rangeHeader string) {
-	// Parse range header: "bytes=start-end"
-	ranges := strings.Split(strings.TrimPrefix(rangeHeader, "bytes="), "-")
-	if len(ranges) != 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid range header"})
-		return
-	}
-
-	start, err := strconv.ParseInt(ranges[0], 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid range start"})
-		return
-	}
-
-	var end int64
-	if ranges[1] == "" {
-		end = file.Size - 1
+	if rangeHeader != "" {
+		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
+		c.Status(http.StatusPartialContent)
 	} else {
-		end, err = strconv.ParseInt(ranges[1], 10, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid range end"})
-			return
-		}
+		c.Status(http.StatusOK)
 	}
 
-	if start > end || start >= file.Size {
-		c.JSON(http.StatusRequestedRangeNotSatisfiable, gin.H{"error": "Invalid range"})
+	// Flush headers immediately so browser can render the video player
+	c.Writer.WriteHeader(c.Writer.Status())
+
+	// Stream the requested range live from Telegram (or local cache if available)
+	if err := h.fileService.StreamRange(c.Request.Context(), userID, uint(fileID), start, length, c.Writer); err != nil {
+		// Client disconnected mid-stream — normal for video seeking, not an error
 		return
-	}
-
-	contentLength := end - start + 1
-	c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, file.Size))
-	c.Header("Content-Length", strconv.FormatInt(contentLength, 10))
-	c.Header("Content-Type", file.MimeType)
-	c.Status(http.StatusPartialContent)
-
-	// In a real implementation, you would stream the specific range
-	// For now, we'll send the whole file (mock implementation)
-	reader, _, err := h.fileService.StreamFile(c.Request.Context(), c.GetUint("user_id"), file.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer reader.Close()
-
-	// Skip to start position
-	buf := make([]byte, start)
-	reader.Read(buf)
-
-	// Send the requested range
-	remaining := contentLength
-	buf = make([]byte, 32*1024)
-	for remaining > 0 {
-		toRead := int64(len(buf))
-		if toRead > remaining {
-			toRead = remaining
-		}
-
-		n, err := reader.Read(buf[:toRead])
-		if n > 0 {
-			c.Writer.Write(buf[:n])
-			remaining -= int64(n)
-		}
-		if err != nil {
-			break
-		}
 	}
 }
 
-func (h *FileHandler) DeleteFile(c *gin.Context) {
+// TrashFile moves a file to the trash (soft-delete).
+func (h *FileHandler) TrashFile(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	fileIDStr := c.Param("id")
-
-	fileID, err := strconv.ParseUint(fileIDStr, 10, 32)
+	fileID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID"})
 		return
 	}
+	if err := h.fileService.TrashFile(userID, uint(fileID)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "File moved to trash"})
+}
 
-	err = h.fileService.DeleteFile(c.Request.Context(), userID, uint(fileID))
+// DeleteFile permanently deletes a file (only from the trash view).
+func (h *FileHandler) DeleteFile(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	fileID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID"})
+		return
+	}
+	if err := h.fileService.DeleteFile(c.Request.Context(), userID, uint(fileID)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "File permanently deleted"})
+}
+
+// RestoreFile moves a file from the trash back to its original location.
+func (h *FileHandler) RestoreFile(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	fileID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID"})
+		return
+	}
+	if err := h.fileService.RestoreFile(userID, uint(fileID)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "File restored"})
+}
+
+// GetTrashedFiles returns all files in the trash.
+func (h *FileHandler) GetTrashedFiles(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	files, err := h.fileService.GetTrashedFiles(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "File deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"files": files})
 }
+
+// EmptyTrash permanently deletes all files in the trash.
+func (h *FileHandler) EmptyTrash(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	if err := h.fileService.EmptyTrash(c.Request.Context(), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Trash emptied"})
+}
+
+
 
 func (h *FileHandler) CreateDirectory(c *gin.Context) {
 	userID := c.GetUint("user_id")

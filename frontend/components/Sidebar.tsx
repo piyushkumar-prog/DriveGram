@@ -122,13 +122,10 @@ export function Sidebar({
               <span className="text-sm font-bold text-foreground">Storage</span>
             </div>
             
-            <div className="w-full bg-muted rounded-full h-1.5 mb-2 overflow-hidden">
-              <div className="bg-primary h-1.5 rounded-full w-[15%] transition-all duration-500" />
-            </div>
+
             
             <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-bold">
-              <span className="text-muted-foreground">1.2 GB / 10 GB</span>
-              <span className="text-primary">15%</span>
+              <span className="text-muted-foreground">Unlimited Data</span>
             </div>
           </div>
         </div>

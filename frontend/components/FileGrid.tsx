@@ -51,6 +51,8 @@ interface FileGridProps {
   starredIds?: Set<number>
   searchQuery: string
   viewMode?: 'grid' | 'list'
+  isTrashView?: boolean
+  onFileRestore?: (fileId: number) => Promise<void>
 }
 
 const iconMap = {
@@ -72,9 +74,11 @@ export function FileGrid({
   onFolderClick, 
   onFileOpen, 
   onToggleStar,
-  starredIds,
+  starredIds = new Set(),
   searchQuery,
-  viewMode = 'grid'
+  viewMode = 'grid',
+  isTrashView = false,
+  onFileRestore
 }: FileGridProps) {
   const [deletingFile, setDeletingFile] = useState<number | null>(null)
   const [downloadingFile, setDownloadingFile] = useState<number | null>(null)
@@ -125,6 +129,8 @@ export function FileGrid({
       count: 0,
     })
   }
+
+  const closeContextMenu = () => setContextMenu(null)
 
   const handleBulkDelete = async () => {
     for (const itemKey of Array.from(selectedItems)) {
@@ -320,7 +326,6 @@ export function FileGrid({
                   <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">--</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Folder actions can be added here */}
                     </div>
                   </td>
                 </tr>
@@ -555,8 +560,8 @@ export function FileGrid({
             <div className="p-5">
               <p className="text-sm text-muted-foreground">
                 {confirmDelete.mode === 'single'
-                  ? 'Are you sure you want to delete this file? This action cannot be undone.'
-                  : `Are you sure you want to delete ${confirmDelete.count} selected items? This action cannot be undone.`}
+                  ? (isTrashView ? 'Are you sure you want to permanently delete this file? This action cannot be undone.' : 'Are you sure you want to move this file to the trash?')
+                  : (isTrashView ? `Are you sure you want to permanently delete ${confirmDelete.count} selected items? This action cannot be undone.` : `Are you sure you want to move ${confirmDelete.count} selected items to the trash?`)}
               </p>
               <div className="mt-5 flex justify-end space-x-2">
                 <button
@@ -582,9 +587,13 @@ export function FileGrid({
           x={contextMenu.x}
           y={contextMenu.y}
           type={contextMenu.type}
-          onClose={() => setContextMenu(null)}
+          onClose={closeContextMenu}
           onDownload={contextMenu.type === 'file' ? () => handleDownload(contextMenu.item) : undefined}
           onDelete={contextMenu.type === 'file' ? () => openSingleDeleteConfirm(contextMenu.id) : undefined}
+          onRestore={contextMenu.type === 'file' && isTrashView ? () => onFileRestore?.(contextMenu.id) : undefined}
+          isStarred={contextMenu.type === 'file' ? starredIds.has(contextMenu.id) : undefined}
+          onToggleStar={contextMenu.type === 'file' && !isTrashView ? () => onToggleStar?.(contextMenu.id) : undefined}
+          isTrashView={isTrashView}
           onRename={() => {
             const newName = prompt('Enter new name:', contextMenu.item.original_name || contextMenu.item.name)
             if (newName && newName !== (contextMenu.item.original_name || contextMenu.item.name)) {

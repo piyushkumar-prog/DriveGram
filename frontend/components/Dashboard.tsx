@@ -13,7 +13,7 @@ import { useFolders } from '@/hooks/useFolders'
 import { Breadcrumbs } from './Breadcrumbs'
 import { LoadingSpinner } from './LoadingSpinner'
 import { Sidebar, SidebarCategory } from './Sidebar'
-import { FolderOpen, Upload, LayoutGrid, List, RefreshCw } from 'lucide-react'
+import { FolderOpen, Upload, LayoutGrid, List, RefreshCw, Trash2 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 
 interface PreviewFileItem {
@@ -31,7 +31,11 @@ interface BreadcrumbItem {
 
 export function Dashboard() {
   const { user, logout } = useAuth()
-  const { files, isLoading: filesLoading, loadFiles, uploadFile, deleteFile, searchFiles, starredIds, toggleStar, renameFile, syncFiles } = useFiles()
+  const { 
+    files, trashedFiles, isLoading: filesLoading, 
+    loadFiles, loadTrashedFiles, uploadFile, deleteFile, restoreFile, permanentDeleteFile, emptyTrash,
+    searchFiles, starredIds, toggleStar, renameFile, syncFiles 
+  } = useFiles()
   const { folders, isLoading: foldersLoading, loadFolders, createFolder } = useFolders()
   const [currentFolder, setCurrentFolder] = useState<number | null>(null)
   const [currentCategory, setCurrentCategory] = useState<SidebarCategory>('all')
@@ -55,11 +59,11 @@ export function Dashboard() {
       if (currentCategory === 'all') {
         loadFiles(currentFolder || undefined)
         loadFolders(currentFolder || undefined)
-      } else if (currentCategory === 'recent') {
-        // For recent, we might want to load all files and filter
+      } else if (currentCategory === 'recent' || currentCategory === 'starred') {
         loadFiles() 
+      } else if (currentCategory === 'trash') {
+        loadTrashedFiles()
       }
-      // For starred/trash, we'll use placeholder logic for now
     }
   }, [currentFolder, currentCategory, searchQuery])
 
@@ -134,6 +138,7 @@ export function Dashboard() {
   // Filtering logic
   const getFilteredFiles = () => {
     if (searchQuery) return files
+    if (currentCategory === 'trash') return trashedFiles
     if (currentCategory === 'all') return files
     if (currentCategory === 'recent') {
       return [...files].sort((a, b) => 
@@ -143,14 +148,12 @@ export function Dashboard() {
     if (currentCategory === 'starred') {
       return files.filter(f => starredIds.has(f.id))
     }
-    if (currentCategory === 'trash') return [] // Placeholder
     return files
   }
 
   const getFilteredFolders = () => {
-    if (searchQuery) return folders
-    if (currentCategory === 'all') return folders
-    return [] // Folders only shown in 'all' view
+    if (searchQuery || currentCategory !== 'all') return []
+    return folders
   }
 
   return (
@@ -259,6 +262,20 @@ export function Dashboard() {
                   </button>
                 </>
               )}
+
+              {currentCategory === 'trash' && trashedFiles.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm('Are you sure you want to permanently empty the trash? This action cannot be undone.')) {
+                      emptyTrash()
+                    }
+                  }}
+                  className="bg-destructive text-destructive-foreground px-4 py-2 rounded-xl hover:bg-destructive/90 transition-all flex items-center font-semibold text-sm shadow-lg shadow-destructive/20"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Empty Trash
+                </button>
+              )}
             </div>
           </div>
 
@@ -270,7 +287,8 @@ export function Dashboard() {
             <FileGrid
               files={getFilteredFiles()}
               folders={getFilteredFolders()}
-              onFileDelete={deleteFile}
+              onFileDelete={currentCategory === 'trash' ? permanentDeleteFile : deleteFile}
+              onFileRestore={restoreFile}
               onFileRename={renameFile}
               onFolderClick={handleFolderClick}
               onFileOpen={(file) => setPreviewFile(file)}
@@ -278,6 +296,7 @@ export function Dashboard() {
               starredIds={starredIds}
               searchQuery={searchQuery}
               viewMode={viewMode}
+              isTrashView={currentCategory === 'trash'}
             />
           )}
         </main>

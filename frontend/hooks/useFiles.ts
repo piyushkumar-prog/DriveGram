@@ -22,6 +22,7 @@ interface FileItem {
 
 export function useFiles() {
   const [files, setFiles] = useState<FileItem[]>([])
+  const [trashedFiles, setTrashedFiles] = useState<FileItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [starredIds, setStarredIds] = useState<Set<number>>(new Set())
 
@@ -72,9 +73,55 @@ export function useFiles() {
     try {
       await api.delete(`/files/${fileId}`)
       setFiles(prev => prev.filter(file => file.id !== fileId))
-      toast.success('File deleted successfully')
+      toast.success('File moved to trash')
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to move file to trash')
+      throw error
+    }
+  }
+
+  const loadTrashedFiles = async () => {
+    setIsLoading(true)
+    try {
+      const response = await api.get('/files/trash/list')
+      setTrashedFiles(response.data.files || [])
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to load trash')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const restoreFile = async (fileId: number) => {
+    try {
+      await api.post(`/files/${fileId}/restore`)
+      setTrashedFiles(prev => prev.filter(file => file.id !== fileId))
+      toast.success('File restored')
+      await loadFiles() // Refresh main list
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to restore file')
+      throw error
+    }
+  }
+
+  const permanentDeleteFile = async (fileId: number) => {
+    try {
+      await api.delete(`/files/${fileId}/permanent`)
+      setTrashedFiles(prev => prev.filter(file => file.id !== fileId))
+      toast.success('File permanently deleted')
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to delete file')
+      throw error
+    }
+  }
+
+  const emptyTrash = async () => {
+    try {
+      await api.delete('/files/trash/empty')
+      setTrashedFiles([])
+      toast.success('Trash emptied')
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to empty trash')
       throw error
     }
   }
@@ -123,11 +170,16 @@ export function useFiles() {
 
   return {
     files,
+    trashedFiles,
     isLoading,
     starredIds,
     loadFiles,
+    loadTrashedFiles,
     uploadFile,
     deleteFile,
+    restoreFile,
+    permanentDeleteFile,
+    emptyTrash,
     searchFiles,
     renameFile,
     toggleStar,

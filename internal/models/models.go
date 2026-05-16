@@ -33,20 +33,22 @@ type Folder struct {
 }
 
 type File struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	Name            string    `json:"name"`
-	OriginalName    string    `json:"original_name"`
-	Size            int64     `json:"size"`
-	MimeType        string    `json:"mime_type"`
-	TelegramFileID     string    `gorm:"uniqueIndex" json:"telegram_file_id"`
-	TelegramAccessHash int64     `json:"telegram_access_hash"`
-	TelegramMsgID      int       `json:"telegram_msg_id"`
-	UserID          uint      `json:"user_id"`
-	FolderID        *uint     `json:"folder_id"`
-	FilePath        string    `json:"file_path"`
-	ThumbnailPath   string    `json:"thumbnail_path"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              uint       `gorm:"primaryKey" json:"id"`
+	Name            string     `json:"name"`
+	OriginalName    string     `json:"original_name"`
+	Size            int64      `json:"size"`
+	MimeType        string     `json:"mime_type"`
+	TelegramFileID     string  `gorm:"uniqueIndex" json:"telegram_file_id"`
+	TelegramAccessHash int64   `json:"telegram_access_hash"`
+	TelegramMsgID      int     `json:"telegram_msg_id"`
+	UserID          uint       `json:"user_id"`
+	FolderID        *uint      `json:"folder_id"`
+	FilePath        string     `json:"file_path"`
+	ThumbnailPath   string     `json:"thumbnail_path"`
+	IsTrashed       bool       `gorm:"default:false" json:"is_trashed"`
+	TrashedAt       *time.Time `json:"trashed_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 	
 	User   User    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Folder *Folder `gorm:"foreignKey:FolderID" json:"folder,omitempty"`

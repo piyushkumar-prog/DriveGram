@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { Download, Trash2, Edit2, Share2, Info } from 'lucide-react'
+import { Download, Trash2, Edit2, Share2, Info, Star } from 'lucide-react'
 
 interface ContextMenuProps {
   x: number
@@ -9,9 +9,13 @@ interface ContextMenuProps {
   onClose: () => void
   onDownload?: () => void
   onDelete?: () => void
+  onRestore?: () => void
   onRename?: () => void
   onShare?: () => void
   onInfo?: () => void
+  onToggleStar?: () => void
+  isStarred?: boolean
+  isTrashView?: boolean
   type: 'file' | 'folder'
 }
 
@@ -21,9 +25,13 @@ export function ContextMenu({
   onClose, 
   onDownload, 
   onDelete, 
+  onRestore,
   onRename, 
   onShare, 
   onInfo,
+  onToggleStar,
+  isStarred,
+  isTrashView,
   type 
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -88,6 +96,26 @@ export function ContextMenu({
         </button>
       )}
 
+      {type === 'file' && onToggleStar && (
+        <button
+          onClick={() => { onToggleStar(); onClose(); }}
+          className="w-full flex items-center px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+        >
+          <Star className={`w-4 h-4 mr-2 ${isStarred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
+          {isStarred ? 'Unstar' : 'Star'}
+        </button>
+      )}
+
+      {onRestore && isTrashView && (
+        <button
+          onClick={() => { onRestore(); onClose(); }}
+          className="w-full flex items-center px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+        >
+          <Info className="w-4 h-4 mr-2 text-green-500" />
+          Restore
+        </button>
+      )}
+
       <div className="my-1 border-t border-border" />
 
       {onDelete && (
@@ -96,7 +124,7 @@ export function ContextMenu({
           className="w-full flex items-center px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
         >
           <Trash2 className="w-4 h-4 mr-2" />
-          Delete
+          {isTrashView ? 'Delete Permanently' : 'Move to Trash'}
         </button>
       )}
     </div>

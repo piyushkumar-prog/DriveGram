@@ -52,7 +52,8 @@ func main() {
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, Range")
+		c.Header("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length, Content-Disposition")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -103,7 +104,11 @@ func main() {
 			files.POST("/upload", fileHandler.UploadFile)
 			files.GET("/:id/download", fileHandler.DownloadFile)
 			files.GET("/:id/stream", fileHandler.StreamFile)
-			files.DELETE("/:id", fileHandler.DeleteFile)
+			files.DELETE("/:id", fileHandler.TrashFile)           // Move to trash
+			files.DELETE("/:id/permanent", fileHandler.DeleteFile) // Permanent delete (from trash)
+			files.POST("/:id/restore", fileHandler.RestoreFile)    // Restore from trash
+			files.GET("/trash/list", fileHandler.GetTrashedFiles)  // List trash
+			files.DELETE("/trash/empty", fileHandler.EmptyTrash)   // Empty trash
 			files.POST("/mkdir", fileHandler.CreateDirectory)
 			files.PUT("/:id", fileHandler.RenameFile)
 			files.POST("/sync", fileHandler.SyncFiles)

@@ -97,7 +97,7 @@ func (s *FileService) UploadFile(ctx context.Context, userID uint, folderID *uin
 
 func (s *FileService) GetFiles(userID uint, folderID *uint) ([]models.File, error) {
 	var files []models.File
-	query := s.db.Where("user_id = ?", userID)
+	query := s.db.Where("user_id = ? AND is_trashed = ?", userID, false)
 
 	if folderID != nil {
 		query = query.Where("folder_id = ?", *folderID)
@@ -133,11 +133,21 @@ func (s *FileService) DownloadFile(ctx context.Context, userID uint, fileID uint
 		}
 	}
 
-	// Download from Telegram to temporary location
-	tempPath := filepath.Join("./data/downloads", file.OriginalName)
 	if err := os.MkdirAll("./data/downloads", 0755); err != nil {
 		return "", err
 	}
+
+	// Cache path using file ID to ensure uniqueness
+	cachePath := filepath.Join("./data/downloads", fmt.Sprintf("%d_%s", file.ID, file.OriginalName))
+	
+	// If it's already fully downloaded, serve from cache immediately!
+	if info, err := os.Stat(cachePath); err == nil && info.Size() == file.Size {
+		return cachePath, nil
+	}
+
+	// Download to a .tmp file to avoid Windows file lock errors if multiple 
+	// range requests (like from a <video> tag) try to download simultaneously.
+	tempPath := fmt.Sprintf("%s_%d.tmp", cachePath, time.Now().UnixNano())
 
 	// Get user info for Telegram
 	var user models.User
@@ -147,14 +157,23 @@ func (s *FileService) DownloadFile(ctx context.Context, userID uint, fileID uint
 
 	err = s.telegramService.DownloadFile(ctx, user.SessionData, *file, tempPath)
 	if err != nil {
+		_ = os.Remove(tempPath)
 		return "", err
 	}
 
-	if _, err := os.Stat(tempPath); err != nil {
-		return "", fmt.Errorf("downloaded file not found")
+	if info, err := os.Stat(tempPath); err != nil || info.Size() == 0 {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("downloaded file not found or empty")
 	}
 
-	return tempPath, nil
+	// Rename the temp file to the final cache path
+	_ = os.Remove(cachePath) // ignore error if it doesn't exist
+	if err := os.Rename(tempPath, cachePath); err != nil {
+		// If rename fails (e.g. locked), just serve the temp file this one time
+		return tempPath, nil
+	}
+
+	return cachePath, nil
 }
 
 func (s *FileService) StreamFile(ctx context.Context, userID uint, fileID uint) (interface {
@@ -192,6 +211,88 @@ func (s *FileService) StreamFile(ctx context.Context, userID uint, fileID uint) 
 	return reader, size, nil
 }
 
+// StreamRange streams a byte range of the file into w.
+// If the file is already cached on disk, it reads the range from disk.
+// Otherwise it streams directly from Telegram at the given offset.
+func (s *FileService) StreamRange(ctx context.Context, userID uint, fileID uint, start int64, length int64, w io.Writer) error {
+	file, err := s.GetFile(userID, fileID)
+	if err != nil {
+		return err
+	}
+
+	// If fully cached on disk, serve range from local file — instant & O(1) seeks
+	servePaths := []string{}
+	if file.FilePath != "" {
+		servePaths = append(servePaths, file.FilePath)
+	}
+	cachePath := filepath.Join("./data/downloads", fmt.Sprintf("%d_%s", file.ID, file.OriginalName))
+	if info, err := os.Stat(cachePath); err == nil && info.Size() >= file.Size {
+		servePaths = append([]string{cachePath}, servePaths...)
+	}
+
+	for _, p := range servePaths {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		defer f.Close()
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			continue
+		}
+		if length > 0 {
+			_, err = io.CopyN(w, f, length)
+		} else {
+			_, err = io.Copy(w, f)
+		}
+		return err
+	}
+
+	// Not cached — stream the range live from Telegram
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return err
+	}
+
+	return s.telegramService.StreamToWriter(ctx, user.SessionData, *file, start, length, w)
+}
+
+// TrashFile moves a file to the trash (soft-delete only — Telegram message is NOT deleted).
+func (s *FileService) TrashFile(userID uint, fileID uint) error {
+	file, err := s.GetFile(userID, fileID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	return s.db.Model(file).Updates(map[string]interface{}{
+		"is_trashed": true,
+		"trashed_at": now,
+	}).Error
+}
+
+// RestoreFile moves a file out of the trash back to its original location.
+func (s *FileService) RestoreFile(userID uint, fileID uint) error {
+	file, err := s.GetFile(userID, fileID)
+	if err != nil {
+		return err
+	}
+	return s.db.Model(file).Updates(map[string]interface{}{
+		"is_trashed": false,
+		"trashed_at": nil,
+	}).Error
+}
+
+// GetTrashedFiles returns all files in the trash for a user.
+func (s *FileService) GetTrashedFiles(userID uint) ([]*models.File, error) {
+	var files []*models.File
+	if err := s.db.Where("user_id = ? AND is_trashed = ?", userID, true).
+		Order("trashed_at DESC").Find(&files).Error; err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// DeleteFile permanently deletes a file — deletes from Telegram + database.
+// Only called from EmptyTrash or explicit permanent-delete from trash.
 func (s *FileService) DeleteFile(ctx context.Context, userID uint, fileID uint) error {
 	file, err := s.GetFile(userID, fileID)
 	if err != nil {
@@ -204,18 +305,30 @@ func (s *FileService) DeleteFile(ctx context.Context, userID uint, fileID uint) 
 		return err
 	}
 
-	// Delete from Telegram
+	// Delete message from Telegram
 	if err := s.telegramService.DeleteFile(ctx, user.SessionData, file.TelegramMsgID); err != nil {
 		return err
 	}
 
-	// Best-effort cleanup of local persisted file.
+	// Best-effort cleanup of local persisted file
 	if file.FilePath != "" {
 		_ = os.Remove(file.FilePath)
 	}
 
-	// Delete from database
 	return s.db.Delete(file).Error
+}
+
+// EmptyTrash permanently deletes all trashed files for a user.
+func (s *FileService) EmptyTrash(ctx context.Context, userID uint) error {
+	trashedFiles, err := s.GetTrashedFiles(userID)
+	if err != nil {
+		return err
+	}
+	for _, f := range trashedFiles {
+		// Ignore errors on individual files — best effort
+		_ = s.DeleteFile(ctx, userID, f.ID)
+	}
+	return nil
 }
 
 func (s *FileService) SyncTelegramFiles(ctx context.Context, userID uint) error {
@@ -282,8 +395,8 @@ func (s *FileService) SearchFiles(userID uint, query string) ([]models.File, err
 	var files []models.File
 	searchQuery := "%" + strings.ToLower(query) + "%"
 
-	if err := s.db.Where("user_id = ? AND (LOWER(name) LIKE ? OR LOWER(original_name) LIKE ?)",
-		userID, searchQuery, searchQuery).
+	if err := s.db.Where("user_id = ? AND is_trashed = ? AND (LOWER(name) LIKE ? OR LOWER(original_name) LIKE ?)",
+		userID, false, searchQuery, searchQuery).
 		Order("created_at DESC").
 		Find(&files).Error; err != nil {
 		return nil, err
